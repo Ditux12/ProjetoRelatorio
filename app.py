@@ -44,7 +44,7 @@ ICON_PATH = os.path.join(BASE_DIR, "static", "u4.png")
 IMAGE_PATH = os.path.join(BASE_DIR, "static", "u23.png")
 
 
-app = FastAPI(
+app = FastAPI()
 
 @app.post("/generate-report")
 async def generate_report(file: UploadFile = File(...)):
@@ -675,4 +675,5 @@ if __name__ == "__main__":
     output_path = "Relatorio_Tabelas.pptx"
     main(input_path, output_path)
     print(f"PPTX gerado: {output_path}")
+
 
