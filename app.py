@@ -44,9 +44,7 @@ ICON_PATH = os.path.join(BASE_DIR, "static", "u4.png")
 IMAGE_PATH = os.path.join(BASE_DIR, "static", "u23.png")
 
 
-
-
-app = FastAPI()
+app = FastAPI(
 
 @app.post("/generate-report")
 async def generate_report(file: UploadFile = File(...)):
@@ -65,15 +63,17 @@ async def generate_report(file: UploadFile = File(...)):
         # Executar a tua função
         main(tmp_in_path, tmp_out_path)
 
-        # Apagar Excel temporário
-        os.remove(tmp_in_path)
+        # Ler PPTX e converter para Base64
+        with open(tmp_out_path, "rb") as f:
+            pptx_bytes = f.read()
+        pptx_b64 = base64.b64encode(pptx_bytes).decode("utf-8")
 
-        # Retornar PPTX
-        return FileResponse(
-            path=tmp_out_path,
-            filename="relatorio.pptx",
-            media_type="application/vnd.openxmlformats-officedocument.presentationml.presentation"
-        )
+        # Limpeza
+        os.remove(tmp_in_path)
+        os.remove(tmp_out_path)
+
+        # Retornar em JSON
+        return {"file_base64": pptx_b64}
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -675,3 +675,4 @@ if __name__ == "__main__":
     output_path = "Relatorio_Tabelas.pptx"
     main(input_path, output_path)
     print(f"PPTX gerado: {output_path}")
+
