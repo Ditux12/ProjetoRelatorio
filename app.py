@@ -18,7 +18,7 @@ from fastapi import FastAPI, UploadFile, File, HTTPException
 from fastapi.responses import FileResponse
 import tempfile
 import os
-
+import base64
 
 CATEGORY_ORDER = [
     "Eventos",
@@ -60,20 +60,22 @@ async def generate_report(file: UploadFile = File(...)):
         tmp_out_path = tmp_out.name
         tmp_out.close()
 
-        # Executar a tua função
+        # Usar a tua função principal
         main(tmp_in_path, tmp_out_path)
 
-        # Ler PPTX e converter para Base64
+        # Ler o PPTX gerado em bytes
         with open(tmp_out_path, "rb") as f:
             pptx_bytes = f.read()
+
+        # Converter para Base64
         pptx_b64 = base64.b64encode(pptx_bytes).decode("utf-8")
 
-        # Limpeza
+        # Apagar ficheiros temporários
         os.remove(tmp_in_path)
         os.remove(tmp_out_path)
 
-        # Retornar em JSON
-        return {"file_base64": pptx_b64}
+        # Retornar como JSON
+        return JSONResponse(content={"file_base64": pptx_b64})
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -675,5 +677,6 @@ if __name__ == "__main__":
     output_path = "Relatorio_Tabelas.pptx"
     main(input_path, output_path)
     print(f"PPTX gerado: {output_path}")
+
 
 
