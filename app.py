@@ -14,6 +14,10 @@ from pptx.oxml.xmlchemy import OxmlElement
 from pptx.oxml.ns import qn
 from pptx.oxml import parse_xml
 import unicodedata
+from io import BytesIO
+from quickchart import QuickChart
+import numpy as np
+from datetime import datetime, timedelta
 from fastapi import FastAPI, UploadFile, File, HTTPException
 from fastapi.responses import FileResponse
 import tempfile
@@ -21,24 +25,19 @@ import os
 import base64
 from fastapi.responses import JSONResponse
 
-
-
-    
-
 OPINION_CATEGORIES = ["Artigo de Opinião", "Comentário"]
 IGNORE_CATEGORIES = ["Desporto"]
+ARTOPINION_CATEGORIES = ["Artigo de Opinião", "Comentário"]
 
 TITLE_FONT = 32
 SUBTITLE_FONT = 18
 BODY_FONT = 12
 
-
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 ICON_PATH = os.path.join(BASE_DIR, "static", "u4.png")
 IMAGE_PATH = os.path.join(BASE_DIR, "static", "u23.png")
 
-
-app = FastAPI()
+app= FastAPI()
 
 @app.post("/generate-report")
 async def generate_report(file: UploadFile = File(...)):
@@ -73,8 +72,6 @@ async def generate_report(file: UploadFile = File(...)):
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
-    
-
 def set_cell_border(cell, color=RGBColor(0,0,0), width=12700):
     """Define bordas para uma célula usando XML (width em EMUs, 12700 ≈ 0.127mm)."""
     tc = cell._tc
@@ -133,25 +130,7 @@ def read_excel(path):
     return df
 
 
-def create_pie_chart(df):
-    counts = df['Meio'].value_counts()
-    fig, ax = plt.subplots(figsize=(4,4))
-    fig.patch.set_facecolor('#404040')
-    ax.set_facecolor('#404040')
-    wedges, texts, autotexts = ax.pie(
-        counts,
-        labels=counts.index.tolist(),
-        autopct='%1.1f%%',
-        textprops={'color':'white'}
-    )
-    ax.axis('equal')
-    for text in texts:
-        text.set_color('white')
-    buf = io.BytesIO()
-    plt.savefig(buf, format='png', bbox_inches='tight')
-    plt.close(fig)
-    buf.seek(0)
-    return buf
+
 
 def set_slide_background(slide, rgb_color):
     fill = slide.background.fill
@@ -223,12 +202,6 @@ def add_index_slide(prs, sections, slide_refs, page_numbers):
     return slide
 
 
-
-
-
-
-
-
 def _make_leader_line(label: str, page_num: int, width: int = 70) -> str:
     s_page = str(page_num)
     dots = max(2, width - len(label) - len(s_page))
@@ -237,10 +210,44 @@ def _make_leader_line(label: str, page_num: int, width: int = 70) -> str:
 
 
 
+def create_pie_chart(df):
+    counts = df['Meio'].value_counts()
+    labels = counts.index.tolist()
+    sizes = counts.values.tolist()
+    colors = plt.cm.tab20.colors[:len(labels)]
+
+    fig, ax = plt.subplots(figsize=(5,5))
+    fig.patch.set_facecolor('#404040')
+    ax.set_facecolor('#404040')
+
+    wedges, texts, autotexts = ax.pie(
+        sizes,
+        labels=labels,
+        autopct='%1.1f%%',
+        colors=colors,
+        startangle=90,
+        wedgeprops={'edgecolor':'white', 'linewidth':1},
+        textprops={'color':'white', 'fontsize':10},
+        pctdistance=0.6,   # percentagens dentro do gráfico
+        labeldistance=1.05 # labels fora
+    )
+
+    ax.axis('equal')
+
+    # Colocar percentagens pequenas verticalmente
+    for i, autotext in enumerate(autotexts):
+        if sizes[i] / sum(sizes) < 0.05:  # fatias pequenas <5%
+            autotext.set_rotation(90)  # vertical
+            autotext.set_verticalalignment('center')
+            autotext.set_horizontalalignment('center')
+
+    buf = io.BytesIO()
+    plt.savefig(buf, format='png', bbox_inches='tight', transparent=True, dpi=300)
+    plt.close(fig)
+    buf.seek(0)
+    return buf
 
 
-
-    
 
 def build_overview_table(prs, stats, pie_img_bytes):
     slide = prs.slides.add_slide(prs.slide_layouts[5])
@@ -251,9 +258,12 @@ def build_overview_table(prs, stats, pie_img_bytes):
     p.size = Pt(TITLE_FONT)
     p.color.rgb = RGBColor(255, 255, 255)
 
+    # --- Tabela ---
     rows = len(stats['by_category'])+1
     cols = 3
-    table = slide.shapes.add_table(rows, cols, Inches(0.5), Inches(1.5), Inches(4.5), Inches(3)).table
+    table = slide.shapes.add_table(
+        rows, cols, Inches(0.5), Inches(1.5), Inches(4.5), Inches(3)
+    ).table
     headers = ["Categoria", "Nº Notícias", "Circulação"]
 
     for j, h in enumerate(headers):
@@ -263,7 +273,7 @@ def build_overview_table(prs, stats, pie_img_bytes):
         cell.text_frame.paragraphs[0].alignment = PP_ALIGN.CENTER
         cell.text_frame.paragraphs[0].font.color.rgb = RGBColor(255, 255, 255)
         cell.fill.solid()
-        cell.fill.fore_color.rgb = RGBColor(64, 64, 64)  # igual ao fundo do slide
+        cell.fill.fore_color.rgb = RGBColor(64, 64, 64)
 
     for i, (cat, vals) in enumerate(stats['by_category'].items(), start=1):
         table.cell(i, 0).text = cat
@@ -274,10 +284,17 @@ def build_overview_table(prs, stats, pie_img_bytes):
             cell.text_frame.paragraphs[0].font.color.rgb = RGBColor(255, 255, 255)
             cell.fill.solid()
             cell.fill.fore_color.rgb = RGBColor(64, 64, 64)
-    
-    slide.shapes.add_picture(pie_img_bytes, Inches(6), Inches(1.5), height=Inches(3))
 
-    # Caixa de texto com estatísticas
+    # --- Gráfico ---
+    slide.shapes.add_picture(
+        pie_img_bytes,
+        Inches(5.5),   # X
+        Inches(1.29),  # Y
+        width=Inches(3.94),
+        height=Inches(3.8)
+    )
+
+    # --- Caixa de texto ---
     tx = slide.shapes.add_textbox(Inches(0.5), Inches(5.3), Inches(5), Inches(1)).text_frame
     tx.text = (
         f"—Total de notícias: {stats['total_rows']}\n"
@@ -285,7 +302,6 @@ def build_overview_table(prs, stats, pie_img_bytes):
         f"—AAV total: {stats['total_aav']:,}"
     )
 
-    
     for p in tx.paragraphs:
         for run in p.runs:
             run.font.color.rgb = RGBColor(255, 255, 255)
@@ -295,10 +311,6 @@ def build_overview_table(prs, stats, pie_img_bytes):
     tx.paragraphs[0].font.color.rgb = RGBColor(255, 255, 255)
 
     return slide
-
-
-
-
 
 def add_slide_numbers(prs):
     for i, slide in enumerate(prs.slides, start=1):
@@ -316,7 +328,7 @@ def add_slide_numbers(prs):
 
 from pptx.enum.dml import MSO_FILL_TYPE
 
-def add_table_slide(prs, category_name, items, extra_cols=None, rows_per_slide=6):
+def add_table_slide(prs, category_name, items, rows_per_slide=6):
     total_count = len(items)
     total_circ = int(items['Circulação'].sum()) if total_count > 0 else 0
 
@@ -329,19 +341,12 @@ def add_table_slide(prs, category_name, items, extra_cols=None, rows_per_slide=6
     p.size = Pt(TITLE_FONT)
     p.color.rgb = RGBColor(255, 255, 255)
 
-    # Dimensões das caixas
-    box_width = Inches(3)
-    box_height = Inches(1.5)
-    top = (prs.slide_height - box_height) / 2
-
     # Caixa 1 - Total de notícias
-    left1 = Inches(2)
-    shape1 = slide_intro.shapes.add_shape(MSO_SHAPE.RECTANGLE, left1, top, box_width, box_height)
+    shape1 = slide_intro.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(6), Inches(1.78), Inches(3), Inches(1.5))
     shape1.fill.solid()
-    shape1.fill.fore_color.rgb = RGBColor(64,64,64)
-    shape1.line.color.rgb = RGBColor(64,64,64)
+    shape1.fill.fore_color.rgb = RGBColor(64, 64, 64)
+    shape1.line.color.rgb = RGBColor(64, 64, 64)
     shape1.line.width = Pt(1)
-
     tf1 = shape1.text_frame
     tf1.clear()
     p1 = tf1.add_paragraph()
@@ -352,13 +357,11 @@ def add_table_slide(prs, category_name, items, extra_cols=None, rows_per_slide=6
     p1.alignment = PP_ALIGN.CENTER
 
     # Caixa 2 - Circulação acumulada
-    left2 = left1 + box_width + Inches(0.5)
-    shape2 = slide_intro.shapes.add_shape(MSO_SHAPE.RECTANGLE, left2, top, box_width, box_height)
+    shape2 = slide_intro.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(6), Inches(4.53), Inches(3), Inches(1.5))
     shape2.fill.solid()
-    shape2.fill.fore_color.rgb = RGBColor(64,64,64)
-    shape2.line.color.rgb = RGBColor(64,64,64)
+    shape2.fill.fore_color.rgb = RGBColor(64, 64, 64)
+    shape2.line.color.rgb = RGBColor(64, 64, 64)
     shape2.line.width = Pt(1)
-
     tf2 = shape2.text_frame
     tf2.clear()
     p2 = tf2.add_paragraph()
@@ -368,15 +371,36 @@ def add_table_slide(prs, category_name, items, extra_cols=None, rows_per_slide=6
     p2.font.color.rgb = RGBColor(255, 255, 255)
     p2.alignment = PP_ALIGN.CENTER
 
-    # Definição das colunas da tabela
-    base_cols = ["Meio", "Data de publicação", "Título", "Publicação", "Circulação"]
-    if extra_cols:
-        base_cols += extra_cols
+    # Linha vertical no meio
+    line = slide_intro.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(4.14), Inches(0), Inches(0.03), Inches(7.5))
+    line.fill.solid()
+    line.fill.fore_color.rgb = RGBColor(255, 255, 255)
+    line.line.fill.background()  # sem borda
 
-    # Função para criar tabelas (slides de conteúdo)
-    def _create_table_for_chunk(chunk, cat_name):
+    # Ajuste do título à direita
+    title_shape = slide_intro.shapes.title
+    title_shape.left = Inches(0.3)
+    title_shape.top = Inches(3.28)
+    title_shape.width = Inches(3)
+    title_shape.height = Inches(0.71)
+    title_shape.text = f"{category_name}"
+    title_tf = title_shape.text_frame
+    p = title_tf.paragraphs[0].font
+    p.name = 'Barlow'
+    p.size = Pt(25)
+    p.color.rgb = RGBColor(255, 255, 255)
+    title_tf.paragraphs[0].alignment = PP_ALIGN.CENTER
+
+    # 🔹 Definir colunas extras só para Artigos de opinião e Comentários
+    if category_name in ["Artigos de opinião", "Comentários"]:
+        extra_cols = ["Autor", "Instituição"]
+    else:
+        extra_cols = []
+    base_cols = ["Meio", "Data de publicação", "Título", "Publicação", "Circulação"] + extra_cols
+
+    # Função auxiliar para criar a tabela em cada chunk
+    def _create_table_for_chunk(chunk, slide_title):
         slide = prs.slides.add_slide(prs.slide_layouts[5])
-        set_slide_background(slide, (64, 64, 64))
 
         # Ajuste do título do slide
         title_shape = slide.shapes.title
@@ -384,8 +408,7 @@ def add_table_slide(prs, category_name, items, extra_cols=None, rows_per_slide=6
         title_shape.top = Inches(0.29)
         title_shape.width = Inches(7.05)
         title_shape.height = Inches(0.71)
-        title_shape.text = f"{cat_name}"
-
+        title_shape.text = slide_title
         title_tf = title_shape.text_frame
         p = title_tf.paragraphs[0].font
         p.name = 'Barlow'
@@ -396,7 +419,8 @@ def add_table_slide(prs, category_name, items, extra_cols=None, rows_per_slide=6
         # --- TABELA ---
         rows = len(chunk) + 1
         cols = len(base_cols)
-        table_height = Inches(1.5) if rows <= 2 else Inches(5)
+        table_height = Inches(1.5) if rows <= 4 else Inches(5)
+
         table = slide.shapes.add_table(rows, cols, Inches(0.5), Inches(1.5), Inches(9), table_height).table
 
         # Cabeçalhos
@@ -405,85 +429,69 @@ def add_table_slide(prs, category_name, items, extra_cols=None, rows_per_slide=6
             cell.text = col_name
             cell.text_frame.paragraphs[0].font.bold = True
             cell.text_frame.paragraphs[0].font.size = Pt(12)
-            cell.text_frame.paragraphs[0].font.color.rgb = RGBColor(255, 255, 255)
+            cell.text_frame.paragraphs[0].font.color.rgb = RGBColor(0, 0, 0)
             cell.fill.solid()
-            cell.fill.fore_color.rgb = RGBColor(64, 64, 64)
-            set_cell_border(cell, RGBColor(255, 255, 255))
+            cell.fill.fore_color.rgb = RGBColor(255, 255, 255)
+            set_cell_border(cell, RGBColor(0, 0, 0))
             cell.text_frame.paragraphs[0].alignment = PP_ALIGN.CENTER
 
         # Dados da tabela
         for i, (_, r) in enumerate(chunk.iterrows(), start=1):
             vals = [
                 r.get("Meio", ""),
-                r.get("Data de publicação", "").isoformat() if hasattr(r.get("Data de publicação", ""), "isoformat") else "",
+                r.get("Data de publicação", "").isoformat()
+                if hasattr(r.get("Data de publicação", ""), "isoformat")
+                else "",
                 r.get("Título", ""),
                 r.get("Publicação", ""),
                 str(int(r.get("Circulação", 0))) if pd.notna(r.get("Circulação", 0)) else "0",
             ]
-            if extra_cols:
-                for c in extra_cols:
-                    vals.append(r.get(c, ""))
+            # 🔹 Se categoria for artigos/comentários, adiciona Autor e Instituição
+            if "Autor" in base_cols:
+                vals.append(r.get("Autor", ""))
+            if "Instituição" in base_cols:
+                vals.append(r.get("Instituição", ""))
 
             for j, val in enumerate(vals):
                 cell = table.cell(i, j)
                 cell.text_frame.clear()
                 p = cell.text_frame.paragraphs[0]
-                if base_cols[j] == "Título":
-                    p.font.size = Pt(10)
-                else:
-                    p.font.size = Pt(10)
-                p.font.color.rgb = RGBColor(255, 255, 255)
+                p.font.size = Pt(10)
+                p.font.color.rgb = RGBColor(0, 0, 0)
                 p.word_wrap = True
                 cell.fill.solid()
-                cell.fill.fore_color.rgb = RGBColor(64, 64, 64)
-                set_cell_border(cell, RGBColor(255, 255, 255))
+                cell.fill.fore_color.rgb = RGBColor(255, 255, 255)
+                set_cell_border(cell, RGBColor(0, 0, 0))
+
                 if base_cols[j] == "Título" and pd.notna(r.get("Link")) and r.get("Link") != "":
                     run = p.add_run()
                     run.text = str(val)
                     run.hyperlink.address = r.get("Link")
-                    run.font.color.rgb = RGBColor(255, 255, 255)  # branco
+                    run.font.color.rgb = RGBColor(0, 0, 0)
                     run.font.underline = True
                 else:
                     p.text = str(val)
 
         return slide
 
-
-
-    # Criar os slides de dados
-    if category_name in ["Academia", "Outros Temas"] and "Tema Secundário" in items.columns:
+    # Criar os slides de dados (com Tema Secundário em todas as categorias)
+    if "Tema Secundário" in items.columns and items["Tema Secundário"].notna().any():
         grouped = items.groupby("Tema Secundário")
         for tema, subset in grouped:
+            if pd.isna(tema) or str(tema).strip() == "":
+                continue  # 🔹 evita criar slides "Categoria — nan"
             subset = subset.sort_values('Data de publicação', ascending=False)
             for start in range(0, len(subset), rows_per_slide):
                 chunk = subset.iloc[start:start + rows_per_slide]
-                _create_table_for_chunk(chunk, category_name + f" — {tema}")
+                _create_table_for_chunk(chunk, f"{category_name} — {tema}")
     else:
         items = items.sort_values('Data de publicação', ascending=False)
         for start in range(0, len(items), rows_per_slide):
             chunk = items.iloc[start:start + rows_per_slide]
             _create_table_for_chunk(chunk, category_name)
 
-    # 🔹 Agora devolvemos sempre o SLIDE DE INTRODUÇÃO
     return slide_intro
 
-
-    # Criar os slides de dados
-    if category_name in ["Academia", "Outros Temas"] and "Tema Secundário" in items.columns:
-        grouped = items.groupby("Tema Secundário")
-        for tema, subset in grouped:
-            subset = subset.sort_values('Data de publicação', ascending=False)
-            for start in range(0, len(subset), rows_per_slide):
-                chunk = subset.iloc[start:start + rows_per_slide]
-                _create_table_for_chunk(chunk, category_name + f" — {tema}")
-    else:
-        items = items.sort_values('Data de publicação', ascending=False)
-        for start in range(0, len(items), rows_per_slide):
-            chunk = items.iloc[start:start + rows_per_slide]
-            _create_table_for_chunk(chunk, category_name)
-
-    # 🔹 Agora devolvemos sempre o SLIDE DE INTRODUÇÃO
-    return slide_intro
 
 
 
@@ -549,7 +557,33 @@ def add_cover_slide(prs, title, icon_path, image_path):
     title_shape.top = Inches(0.5)
     title_shape.width = Inches(8)
     title_shape.height = Inches(1.5)
+    
+    # ===== Adicionar caixa de texto com intervalo de datas =====
+    from datetime import datetime, timedelta
+
+    hoje = datetime.today()
+    sete_dias_antes = hoje - timedelta(days=7)
+
+    # Formatar no estilo: 31 de julho – 1 de agosto
+    meses = ["janeiro", "fevereiro", "março", "abril", "maio", "junho",
+             "julho", "agosto", "setembro", "outubro", "novembro", "dezembro"]
+
+    inicio_str = f"{sete_dias_antes.day} de {meses[sete_dias_antes.month-1]}"
+    fim_str = f"{hoje.day} de {meses[hoje.month-1]}"
+
+    date_box = slide.shapes.add_textbox(Inches(1), Inches(2), Inches(8), Inches(0.5))
+    tf = date_box.text_frame
+    tf.clear()
+    p_date = tf.add_paragraph()
+    p_date.text = f"{inicio_str} – {fim_str}"
+    p_date.font.size = Pt(16)
+    p_date.font.name = 'Calibri'
+    p_date.font.color.rgb = RGBColor(255, 255, 255)
+    p_date.alignment = PP_ALIGN.CENTER
+    # ========================================================
+
     return slide
+
 
 def add_closing_slide(prs, icon_path, image_path):
     slide = prs.slides.add_slide(prs.slide_layouts[5])
@@ -576,18 +610,21 @@ def main(input_path, output_path):
             df[c] = None
 
     # Ajustar categorias
-    # Ajustar categorias
     df['Categoria_final'] = df['Tema Principal'].replace({
-    "Artigo de Opinião": "Artigos de opinião",
-    "Comentário": "Comentários"
-})
+        "Artigo de Opinião": "Artigos de opinião",
+        "Comentário": "Comentários"
+    })
 
     df.loc[~df['Tema Principal'].isin(OPINION_CATEGORIES), 'Categoria_final'] = \
-    df.loc[~df['Tema Principal'].isin(OPINION_CATEGORIES), 'Tema Principal']
+        df.loc[~df['Tema Principal'].isin(OPINION_CATEGORIES), 'Tema Principal']
 
     df = df[~df['Categoria_final'].isin(IGNORE_CATEGORIES)]
-    
-    CATEGORY_ORDER = sorted(df['Categoria_final'].dropna().unique())
+
+    # Ordenar categorias: normais primeiro, opinião/comentário sempre por último
+    opinion_cats = ["Artigos de opinião", "Comentários"]
+    all_categories = df['Categoria_final'].dropna().unique().tolist()
+    normal_cats = [cat for cat in all_categories if cat not in opinion_cats]
+    CATEGORY_ORDER = sorted(normal_cats) + [cat for cat in opinion_cats if cat in all_categories]
 
     total_rows = len(df)
     total_circ = int(df['Circulação'].sum()) if total_rows > 0 else 0
@@ -611,7 +648,7 @@ def main(input_path, output_path):
     # 1. Slide de capa
     add_cover_slide(prs, "Relatório de notícias semanal", ICON_PATH, IMAGE_PATH)
 
-    # 2. Overview (guardar referência)
+    # 2. Overview
     pie_buf = create_pie_chart(df)
     overview_slide = build_overview_table(prs, stats, pie_buf)
     
@@ -632,7 +669,7 @@ def main(input_path, output_path):
 
     # Calcular números de página antes de mexer na ordem dos slides
     page_numbers = {cat: list(prs.slides).index(slide) + 2 
-                for cat, slide in slide_refs.items() if slide is not None}
+                    for cat, slide in slide_refs.items() if slide is not None}
 
     # Criar índice (links para intro e overview)
     index_slide = add_index_slide(
@@ -659,22 +696,8 @@ def main(input_path, output_path):
     prs.save(output_path)
 
 
-
-
-
-
-
-
-
-
 if __name__ == "__main__":
     input_path = "C:/Users/Diogo/Desktop/conversor/excel121.xlsx"
     output_path = "Relatorio_Tabelas.pptx"
     main(input_path, output_path)
     print(f"PPTX gerado: {output_path}")
-
-
-
-
-
-
