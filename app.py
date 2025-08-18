@@ -19,6 +19,8 @@ from fastapi.responses import FileResponse
 import tempfile
 import os
 import base64
+from fastapi.responses import JSONResponse
+
 
 CATEGORY_ORDER = [
     "Eventos",
@@ -677,6 +679,7 @@ if __name__ == "__main__":
     output_path = "Relatorio_Tabelas.pptx"
     main(input_path, output_path)
     print(f"PPTX gerado: {output_path}")
+
 
 
 
