@@ -22,17 +22,9 @@ import base64
 from fastapi.responses import JSONResponse
 
 
-CATEGORY_ORDER = [
-    "Eventos",
-    "Academia",
-    "Mérito",
-    "Sustentabilidade",
-    "Candidaturas",
-    "Outros Temas",
-    "Artigos de opinião",
-    "Comentários"
+
     
-]
+
 OPINION_CATEGORIES = ["Artigo de Opinião", "Comentário"]
 IGNORE_CATEGORIES = ["Desporto"]
 
@@ -594,7 +586,8 @@ def main(input_path, output_path):
     df.loc[~df['Tema Principal'].isin(OPINION_CATEGORIES), 'Tema Principal']
 
     df = df[~df['Categoria_final'].isin(IGNORE_CATEGORIES)]
-
+    
+    CATEGORY_ORDER = sorted(df['Categoria_final'].dropna().unique())
 
     total_rows = len(df)
     total_circ = int(df['Circulação'].sum()) if total_rows > 0 else 0
@@ -679,6 +672,7 @@ if __name__ == "__main__":
     output_path = "Relatorio_Tabelas.pptx"
     main(input_path, output_path)
     print(f"PPTX gerado: {output_path}")
+
 
 
 
