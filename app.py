@@ -15,7 +15,6 @@ from pptx.oxml.ns import qn
 from pptx.oxml import parse_xml
 import unicodedata
 from io import BytesIO
-from quickchart import QuickChart
 import numpy as np
 from datetime import datetime, timedelta
 from fastapi import FastAPI, UploadFile, File, HTTPException
@@ -701,3 +700,4 @@ if __name__ == "__main__":
     output_path = "Relatorio_Tabelas.pptx"
     main(input_path, output_path)
     print(f"PPTX gerado: {output_path}")
+
