@@ -71,6 +71,13 @@ async def generate_report(file: UploadFile = File(...)):
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/ping")
+async def ping():
+    return JSONResponse(content={"status": "awake"})
+
+
+
 def set_cell_border(cell, color=RGBColor(0,0,0), width=12700):
     """Define bordas para uma célula usando XML (width em EMUs, 12700 ≈ 0.127mm)."""
     tc = cell._tc
@@ -700,4 +707,5 @@ if __name__ == "__main__":
     output_path = "Relatorio_Tabelas.pptx"
     main(input_path, output_path)
     print(f"PPTX gerado: {output_path}")
+
 
