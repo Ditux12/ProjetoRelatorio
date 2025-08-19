@@ -702,10 +702,6 @@ def main(input_path, output_path):
     prs.save(output_path)
 
 
-if __name__ == "__main__":
-    input_path = "C:/Users/Diogo/Desktop/conversor/excel121.xlsx"
-    output_path = "Relatorio_Tabelas.pptx"
-    main(input_path, output_path)
-    print(f"PPTX gerado: {output_path}")
+
 
 
